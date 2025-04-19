@@ -23,7 +23,10 @@
   "bugs": {
     "url": "https://github.com/andreasnicolaou/reactive-event-source/issues"
   },
-  "author": "Andreas Nicolaou <anicolaou66@gmail.com>",
+  "author": {
+    "name": "Andreas Nicolaou",
+    "email": "anicolaou66@gmail.com"
+  },
   "license": "MIT",
   "jest": {
     "transform": {
