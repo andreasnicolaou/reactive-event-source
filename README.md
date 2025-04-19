@@ -91,6 +91,7 @@ eventSource.close();
 | CLOSED     | `2`   | Connection terminated   |
 
 ## Polyfill for Node.js / Legacy Environments
+
 This library depends on the EventSource API, which is available in most modern browsers. If you're running in an environment where EventSource is not defined (such as Node.js), you can globally provide a compatible implementation:
 
 ```ts
