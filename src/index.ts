@@ -1,4 +1,4 @@
-import { Observable, Subject, fromEvent, throwError, timer, merge, defer, of, EMPTY, ReplaySubject } from 'rxjs';
+import { Observable, Subject, fromEvent, throwError, timer, merge, defer, of, EMPTY, ReplaySubject, race } from 'rxjs';
 import { retry, catchError, switchMap, takeUntil, tap, finalize, share } from 'rxjs/operators';
 import { EventSourceError } from './error';
 
@@ -7,6 +7,7 @@ export type EventSourceOptions = {
   maxRetries: number;
   initialDelay: number; // in milliseconds
   maxDelay: number; // in milliseconds
+  connectionTimeout?: number; // in milliseconds
   withCredentials?: boolean;
 };
 
@@ -29,6 +30,7 @@ export class ReactiveEventSource {
       maxRetries: 3,
       initialDelay: 1000,
       maxDelay: 10000,
+      connectionTimeout: 30000,
       withCredentials: false,
       ...options,
     };
@@ -127,7 +129,15 @@ export class ReactiveEventSource {
       const error$ = fromEvent(this.lastEventSource, 'error').pipe(
         switchMap(() => throwError(() => new EventSourceError('EventSource connection failed or dropped.', 0)))
       );
-      const open$ = fromEvent(this.lastEventSource, 'open').pipe(tap(() => this.setupEventForwarding()));
+      const open$ = race([
+        fromEvent(this.lastEventSource, 'open').pipe(
+          tap(() => this.setupEventForwarding()),
+          switchMap(() => of(this.lastEventSource))
+        ),
+        timer(this.options.connectionTimeout ?? 30000).pipe(
+          switchMap(() => throwError(() => new EventSourceError('Connection timeout – open event never received')))
+        ),
+      ]);
       return merge(open$, error$).pipe(
         switchMap(() => of(this.lastEventSource)),
         retry({
