@@ -7,12 +7,21 @@ import { ReactiveEventSource } from './index';
 class MockEventSource {
   static instances: MockEventSource[] = [];
   callbacks: Record<string, (event: any) => void> = {};
+  closeCalled = false;
   readyState = 0;
   url: string | URL;
+  withCredentials = false;
 
-  constructor(url: string | URL) {
+  constructor(url: string | URL, options?: { withCredentials?: boolean }) {
     this.url = url;
+    this.withCredentials = options?.withCredentials ?? false;
     MockEventSource.instances.push(this);
+    setTimeout(() => {
+      if (this.readyState === 0 && !this.closeCalled) {
+        this.readyState = 1;
+        this.emit('open');
+      }
+    }, 10);
   }
 
   public static clearInstances(): void {
@@ -23,8 +32,10 @@ class MockEventSource {
     this.callbacks[type] = callback;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  public close(): void {}
+  public close(): void {
+    this.readyState = 2;
+    this.closeCalled = true;
+  }
 
   public emit(type: string, data?: any): void {
     if (this.callbacks[type]) {
@@ -51,39 +62,42 @@ const setupAndSubscribeTo = (
   return { source, mock, subscription };
 };
 
+let originalEventSource: typeof window.EventSource;
+
+beforeAll(() => {
+  originalEventSource = window.EventSource;
+  (window as any).EventSource = MockEventSource;
+});
+
+afterAll(() => {
+  (window as any).EventSource = originalEventSource;
+});
+
+beforeEach(() => {
+  jest.useFakeTimers();
+  (window as any).EventSource = MockEventSource;
+  MockEventSource.clearInstances();
+  jest.clearAllMocks();
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+});
+
+afterEach(() => {
+  jest.useRealTimers();
+  MockEventSource.clearInstances();
+});
+
 describe('ReactiveEventSource', () => {
-  let originalEventSource!: typeof window.EventSource;
-
-  beforeEach(() => {
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    jest.spyOn(console, 'error').mockImplementation(() => {}); // Disable console warnings
-  });
-
-  beforeAll(() => {
-    originalEventSource = window.EventSource;
-    (window as any).EventSource = MockEventSource;
-  });
-
-  afterEach(() => {
-    MockEventSource.clearInstances();
-    jest.clearAllMocks();
-    jest.useRealTimers();
-  });
-
-  afterAll(() => {
-    (window as any).EventSource = originalEventSource;
-  });
-
-  it('should create an EventSource with the correct URL', (done) => {
+  it('should create an EventSource with the correct URL', async () => {
     const { source, mock } = setupAndSubscribeTo('error');
-    source
-      .on('open')
-      .pipe(take(1))
-      .subscribe(() => {
-        expect(mock.url).toBe(testUrl);
-        done();
-      });
+    const sub = source.on('open').subscribe();
+    jest.advanceTimersByTime(10);
+
+    expect(mock).toBeDefined();
+    expect(mock.url).toBe(testUrl);
     mock.emit('open');
+    source.close();
+    sub.unsubscribe();
   });
 
   it('should set withCredentials when configured', () => {
@@ -98,7 +112,7 @@ describe('ReactiveEventSource', () => {
       .pipe(take(1))
       .subscribe((event) => {
         expect(event.type).toBe('message');
-        expect((event as MessageEvent<any>)?.data).toBe('test data');
+        expect(event?.data).toBe('test data');
         done();
       });
     mock.emit('message', 'test data');
@@ -127,6 +141,19 @@ describe('ReactiveEventSource', () => {
     expect(errors.length).toBe(0);
   });
 
+  it('should connect to EventSource', () => {
+    const source = new ReactiveEventSource(testUrl);
+    source.on('message').subscribe();
+    expect(MockEventSource.instances.length).toBe(1);
+  });
+
+  it('should closes EventSource stream cleanly', () => {
+    const source = new ReactiveEventSource(testUrl);
+    source.on('message').subscribe();
+    source.close();
+    expect(MockEventSource.instances[0].closeCalled).toBe(true);
+  });
+
   it('should throw error when EventSource is not supported', () => {
     (window as any).EventSource = undefined;
     try {
@@ -136,5 +163,38 @@ describe('ReactiveEventSource', () => {
     } finally {
       (window as any).EventSource = MockEventSource;
     }
+  });
+
+  it('should report correct readyState', () => {
+    const source = new ReactiveEventSource(testUrl);
+    source.on('message').subscribe();
+    jest.advanceTimersByTime(1);
+
+    const mock = MockEventSource.instances[0];
+    mock.readyState = 0;
+    expect(source.readyState).toBe(0);
+
+    mock.readyState = 1;
+    mock.emit('open');
+    expect(source.readyState).toBe(1);
+
+    mock.readyState = 2;
+    mock.emit('error');
+    expect(source.readyState).toBe(2);
+  });
+
+  it('should not timeout if open event received', async () => {
+    const source = new ReactiveEventSource(testUrl, {
+      connectionTimeout: 100,
+    });
+
+    const errorSpy = jest.fn();
+    source.on('error').subscribe(errorSpy);
+
+    const mock = MockEventSource.instances[0];
+    mock.emit('open');
+
+    jest.advanceTimersByTime(150);
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 });
