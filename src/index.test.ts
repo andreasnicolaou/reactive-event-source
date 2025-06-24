@@ -78,6 +78,7 @@ beforeEach(() => {
   (window as any).EventSource = MockEventSource;
   MockEventSource.clearInstances();
   jest.clearAllMocks();
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
   jest.spyOn(console, 'error').mockImplementation(() => {});
 });
 
