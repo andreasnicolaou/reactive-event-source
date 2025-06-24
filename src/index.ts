@@ -1,5 +1,5 @@
-import { Observable, Subject, fromEvent, throwError, timer, merge, defer, of, EMPTY, ReplaySubject, race } from 'rxjs';
-import { retry, catchError, switchMap, takeUntil, tap, finalize, share } from 'rxjs/operators';
+import { Observable, Subject, fromEvent, throwError, timer, merge, defer, EMPTY, ReplaySubject, of } from 'rxjs';
+import { retry, catchError, switchMap, takeUntil, finalize, share, raceWith } from 'rxjs/operators';
 import { EventSourceError } from './error';
 
 export type EventSourceEventType = 'open' | 'message' | 'error' | (string & {});
@@ -12,12 +12,12 @@ export type EventSourceOptions = {
 };
 
 export class ReactiveEventSource {
-  private destroy$ = new Subject<void>();
-  private eventSource$: Observable<EventSource>;
-  private eventSubjects = new Map<string, ReplaySubject<MessageEvent>>();
+  private readonly destroy$ = new Subject<void>();
+  private readonly eventSource$: Observable<EventSource>;
+  private readonly eventSubjects = new Map<string, ReplaySubject<MessageEvent>>();
   private lastEventSource!: EventSource;
-  private options: EventSourceOptions;
-  private url: string | URL;
+  private readonly options: EventSourceOptions;
+  private readonly url: string | URL;
 
   /**
    * Creates an instance of reactive event source.
@@ -30,7 +30,7 @@ export class ReactiveEventSource {
       maxRetries: 3,
       initialDelay: 1000,
       maxDelay: 10000,
-      connectionTimeout: 30000,
+      connectionTimeout: 15000,
       withCredentials: false,
       ...options,
     };
@@ -126,20 +126,23 @@ export class ReactiveEventSource {
       }
 
       this.lastEventSource = new EventSource(this.url, { withCredentials: this.options.withCredentials });
+      this.setupEventForwarding();
+
+      const open$ = fromEvent(this.lastEventSource, 'open').pipe(switchMap(() => of(this.lastEventSource)));
       const error$ = fromEvent(this.lastEventSource, 'error').pipe(
-        switchMap(() => throwError(() => new EventSourceError('EventSource connection failed or dropped.', 0)))
+        switchMap(() => {
+          if (this.lastEventSource.readyState === EventSource.CONNECTING) {
+            return throwError(() => new EventSourceError('Initial connection failed'));
+          }
+          return EMPTY;
+        })
       );
-      const open$ = race([
-        fromEvent(this.lastEventSource, 'open').pipe(
-          tap(() => this.setupEventForwarding()),
-          switchMap(() => of(this.lastEventSource))
-        ),
-        timer(this.options.connectionTimeout ?? 30000).pipe(
-          switchMap(() => throwError(() => new EventSourceError('Connection timeout – open event never received')))
-        ),
-      ]);
+      const timeout$ = timer(this.options.connectionTimeout ?? 15000).pipe(
+        switchMap(() => throwError(() => new EventSourceError('Connection timeout')))
+      );
+
       return merge(open$, error$).pipe(
-        switchMap(() => of(this.lastEventSource)),
+        raceWith(timeout$),
         retry({
           count: this.options.maxRetries,
           delay: (error, attempt) => {
@@ -149,7 +152,7 @@ export class ReactiveEventSource {
               }
               const baseDelay = Math.min(this.options.initialDelay * Math.pow(2, attempt), this.options.maxDelay);
               const retryAfter = Math.random() * baseDelay;
-              console.log(`Retry ${attempt} in ${retryAfter}ms`);
+              console.log(`Retrying connection (attempt ${attempt + 1}) in ${retryAfter}ms`);
               return timer(retryAfter);
             }
             return throwError(() => new EventSourceError('Unrecoverable EventSource error', attempt));
@@ -160,15 +163,16 @@ export class ReactiveEventSource {
           this.lastEventSource?.close();
           this.eventSubjects.forEach((subject) => subject.complete());
           this.eventSubjects.clear();
-        }),
-        share({
-          connector: () => new ReplaySubject<EventSource>(1),
-          resetOnComplete: false,
-          resetOnError: false,
-          resetOnRefCountZero: false,
         })
       );
-    });
+    }).pipe(
+      share({
+        connector: () => new ReplaySubject(1),
+        resetOnComplete: false,
+        resetOnError: false,
+        resetOnRefCountZero: false,
+      })
+    );
   }
 
   /**
