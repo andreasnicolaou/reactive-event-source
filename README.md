@@ -10,7 +10,9 @@ A lightweight reactive wrapper around EventSource using RxJS, providing automati
 
 ## Features
 
-- Automatic reconnection with exponential backoff
+- **Automatic reconnection** with configurable exponential backoff
+- **Enhanced timeout handling** with race conditions prevention
+- **Improved error recovery** with state-based retry logic
 - Type-safe event handling
 - Buffered events (never miss the last message)
 - Clean RxJS API with no callback hell
@@ -53,12 +55,13 @@ eventSource.close();
 
 ### Options
 
-| Property          | Type      | Default | Description                       |
-| ----------------- | --------- | ------- | --------------------------------- |
-| `maxRetries`      | `number`  | `3`     | Maximum retry attempts on failure |
-| `initialDelay`    | `number`  | `1000`  | Initial retry delay in ms         |
-| `maxDelay`        | `number`  | `10000` | Maximum retry delay in ms         |
-| `withCredentials` | `boolean` | `false` | Send cookies with requests        |
+| Property            | Type      | Default | Description                          |
+| ------------------- | --------- | ------- | ------------------------------------ |
+| `maxRetries`        | `number`  | `3`     | Maximum retry attempts on failure    |
+| `initialDelay`      | `number`  | `1000`  | Initial retry delay in ms            |
+| `maxDelay`          | `number`  | `10000` | Maximum retry delay in ms            |
+| `connectionTimeout` | `number`  | `15000` | Timeout for initial connection in ms |
+| `withCredentials`   | `boolean` | `false` | Send cookies with requests           |
 
 ### Methods
 
