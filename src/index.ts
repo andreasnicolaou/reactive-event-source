@@ -78,6 +78,12 @@ export class ReactiveEventSource {
    */
   public close(): void {
     this.lastEventSource?.close();
+    this.eventSubjects.forEach((subject) => {
+      if (!subject.closed) {
+        subject.complete();
+      }
+    });
+    this.eventSubjects.clear();
     this.destroy$.next();
     this.destroy$.complete();
   }
@@ -103,7 +109,10 @@ export class ReactiveEventSource {
                 return EMPTY;
               })
             )
-          )
+          ),
+          finalize(() => {
+            this.eventSubjects.delete(eventType);
+          })
         )
         .subscribe((event) => {
           this.eventSubjects.get(eventType)?.next(event);

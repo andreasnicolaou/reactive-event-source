@@ -197,4 +197,84 @@ describe('ReactiveEventSource', () => {
     jest.advanceTimersByTime(150);
     expect(errorSpy).not.toHaveBeenCalled();
   });
+
+  it('should prevent multiple close() calls', () => {
+    const source = new ReactiveEventSource(testUrl);
+    const subscription = source.on('message').subscribe();
+
+    source.close();
+    source.close(); // Should not throw or cause issues
+
+    expect(source.readyState).toBe(2);
+    subscription.unsubscribe();
+  });
+
+  it('should return EMPTY observable when trying to subscribe after close', () => {
+    const source = new ReactiveEventSource(testUrl);
+    source.close();
+
+    const observable = source.on('message');
+    expect(observable).toBeDefined();
+
+    let eventReceived = false;
+    const subscription = observable.subscribe(() => {
+      eventReceived = true;
+    });
+
+    expect(eventReceived).toBe(false);
+    subscription.unsubscribe();
+  });
+
+  it('should properly clean up subscriptions on close', () => {
+    const source = new ReactiveEventSource(testUrl);
+
+    const messageSubscription = source.on('message').subscribe();
+    const errorSubscription = source.on('error').subscribe();
+    const openSubscription = source.on('open').subscribe();
+
+    jest.advanceTimersByTime(10);
+
+    expect(messageSubscription.closed).toBe(false);
+    expect(errorSubscription.closed).toBe(false);
+    expect(openSubscription.closed).toBe(false);
+
+    source.close();
+
+    // Verify all internal state is cleaned up
+    expect(source.readyState).toBe(2);
+
+    messageSubscription.unsubscribe();
+    errorSubscription.unsubscribe();
+    openSubscription.unsubscribe();
+  });
+
+  it('should handle rapid subscribe/unsubscribe cycles without leaks', () => {
+    const source = new ReactiveEventSource(testUrl);
+
+    for (let i = 0; i < 10; i++) {
+      const sub = source.on('message').subscribe();
+      sub.unsubscribe();
+    }
+
+    const finalSub = source.on('message').subscribe();
+    expect(finalSub).toBeDefined();
+
+    source.close();
+    finalSub.unsubscribe();
+  });
+
+  it('should not create new subjects after close', () => {
+    const source = new ReactiveEventSource(testUrl);
+    source.close();
+
+    const customEventObs = source.on('custom-event');
+
+    let eventReceived = false;
+    const subscription = customEventObs.subscribe(() => {
+      eventReceived = true;
+    });
+
+    expect(eventReceived).toBe(false);
+    subscription.unsubscribe();
+  });
 });
