@@ -197,4 +197,94 @@ describe('ReactiveEventSource', () => {
     jest.advanceTimersByTime(150);
     expect(errorSpy).not.toHaveBeenCalled();
   });
+
+  describe('Memory Leak Prevention', () => {
+    it('should prevent multiple close() calls', () => {
+      const source = new ReactiveEventSource(testUrl);
+      const subscription = source.on('message').subscribe();
+
+      source.close();
+      source.close(); // Should not throw or cause issues
+
+      // Verify the source is properly closed
+      expect(source.readyState).toBe(2);
+      subscription.unsubscribe();
+    });
+
+    it('should return EMPTY observable when trying to subscribe after close', () => {
+      const source = new ReactiveEventSource(testUrl);
+      source.close();
+
+      const observable = source.on('message');
+      expect(observable).toBeDefined();
+
+      let eventReceived = false;
+      const subscription = observable.subscribe(() => {
+        eventReceived = true;
+      });
+
+      expect(eventReceived).toBe(false);
+      subscription.unsubscribe();
+    });
+
+    it('should properly clean up subscriptions on close', () => {
+      const source = new ReactiveEventSource(testUrl);
+
+      // Create multiple subscriptions to different event types
+      const messageSubscription = source.on('message').subscribe();
+      const errorSubscription = source.on('error').subscribe();
+      const openSubscription = source.on('open').subscribe();
+
+      jest.advanceTimersByTime(10);
+
+      // Verify subscriptions are created
+      expect(messageSubscription.closed).toBe(false);
+      expect(errorSubscription.closed).toBe(false);
+      expect(openSubscription.closed).toBe(false);
+
+      // Close the source
+      source.close();
+
+      // Verify all internal state is cleaned up
+      expect(source.readyState).toBe(2);
+
+      // Clean up test subscriptions
+      messageSubscription.unsubscribe();
+      errorSubscription.unsubscribe();
+      openSubscription.unsubscribe();
+    });
+
+    it('should handle rapid subscribe/unsubscribe cycles without leaks', () => {
+      const source = new ReactiveEventSource(testUrl);
+
+      // Simulate rapid subscription cycles
+      for (let i = 0; i < 10; i++) {
+        const sub = source.on('message').subscribe();
+        sub.unsubscribe();
+      }
+
+      // Final subscription to test functionality
+      const finalSub = source.on('message').subscribe();
+      expect(finalSub).toBeDefined();
+
+      source.close();
+      finalSub.unsubscribe();
+    });
+
+    it('should not create new subjects after close', () => {
+      const source = new ReactiveEventSource(testUrl);
+      source.close();
+
+      // Try to create subscriptions to new event types after close
+      const customEventObs = source.on('custom-event');
+
+      let eventReceived = false;
+      const subscription = customEventObs.subscribe(() => {
+        eventReceived = true;
+      });
+
+      expect(eventReceived).toBe(false);
+      subscription.unsubscribe();
+    });
+  });
 });

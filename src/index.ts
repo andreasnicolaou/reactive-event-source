@@ -1,4 +1,16 @@
-import { Observable, Subject, fromEvent, throwError, timer, merge, defer, EMPTY, ReplaySubject, of } from 'rxjs';
+import {
+  Observable,
+  Subject,
+  fromEvent,
+  throwError,
+  timer,
+  merge,
+  defer,
+  EMPTY,
+  ReplaySubject,
+  of,
+  Subscription,
+} from 'rxjs';
 import { retry, catchError, switchMap, takeUntil, finalize, share, raceWith } from 'rxjs/operators';
 import { EventSourceError } from './error';
 
@@ -15,6 +27,8 @@ export class ReactiveEventSource {
   private readonly destroy$ = new Subject<void>();
   private readonly eventSource$: Observable<EventSource>;
   private readonly eventSubjects = new Map<string, ReplaySubject<MessageEvent>>();
+  private readonly eventSubscriptions = new Map<string, Subscription>();
+  private isDestroyed = false;
   private lastEventSource!: EventSource;
   private readonly options: EventSourceOptions;
   private readonly url: string | URL;
@@ -77,9 +91,38 @@ export class ReactiveEventSource {
    * @memberof ReactiveEventSource
    */
   public close(): void {
-    this.lastEventSource?.close();
-    this.destroy$.next();
-    this.destroy$.complete();
+    if (this.isDestroyed) {
+      return;
+    }
+
+    this.isDestroyed = true;
+
+    // Close EventSource first
+    if (this.lastEventSource) {
+      this.lastEventSource.close();
+    }
+
+    // Clean up all subscriptions
+    this.eventSubscriptions.forEach((subscription) => {
+      if (!subscription.closed) {
+        subscription.unsubscribe();
+      }
+    });
+    this.eventSubscriptions.clear();
+
+    // Complete and clean up all subjects
+    this.eventSubjects.forEach((subject) => {
+      if (!subject.closed) {
+        subject.complete();
+      }
+    });
+    this.eventSubjects.clear();
+
+    // Finally complete the destroy subject
+    if (!this.destroy$.closed) {
+      this.destroy$.next();
+      this.destroy$.complete();
+    }
   }
 
   /**
@@ -90,14 +133,19 @@ export class ReactiveEventSource {
    * @memberof ReactiveEventSource
    */
   public on(eventType: EventSourceEventType = 'message'): Observable<MessageEvent> {
-    if (!this.eventSubjects.has(eventType)) {
-      this.eventSubjects.set(eventType, new ReplaySubject<MessageEvent>(1)); // Buffers last event
+    if (this.isDestroyed) {
+      return EMPTY;
+    }
 
-      this.eventSource$
+    if (!this.eventSubjects.has(eventType)) {
+      this.eventSubjects.set(eventType, new ReplaySubject<MessageEvent>(1));
+
+      const subscription = this.eventSource$
         .pipe(
           takeUntil(this.destroy$),
           switchMap((eventSource) =>
             fromEvent<MessageEvent>(eventSource, eventType).pipe(
+              takeUntil(this.destroy$),
               catchError((err) => {
                 console.error(`Error in "${eventType}" event`, err);
                 return EMPTY;
@@ -105,12 +153,32 @@ export class ReactiveEventSource {
             )
           )
         )
-        .subscribe((event) => {
-          this.eventSubjects.get(eventType)?.next(event);
+        .subscribe({
+          next: (event: MessageEvent) => {
+            const subject = this.eventSubjects.get(eventType);
+            if (subject && !subject.closed) {
+              subject.next(event);
+            }
+          },
+          error: (err: any) => {
+            const subject = this.eventSubjects.get(eventType);
+            if (subject && !subject.closed) {
+              subject.error(err);
+            }
+          },
+          complete: () => {
+            const subject = this.eventSubjects.get(eventType);
+            if (subject && !subject.closed) {
+              subject.complete();
+            }
+          },
         });
+
+      this.eventSubscriptions.set(eventType, subscription);
     }
 
-    return this.eventSubjects.get(eventType)!.asObservable();
+    const subject = this.eventSubjects.get(eventType);
+    return subject ? subject.asObservable() : EMPTY;
   }
 
   /**
@@ -121,8 +189,17 @@ export class ReactiveEventSource {
    */
   private createEventSource(): Observable<EventSource> {
     return defer(() => {
+      if (this.isDestroyed) {
+        return EMPTY;
+      }
+
       if (!window.EventSource) {
         return throwError(() => new EventSourceError('EventSource is not supported in this environment'));
+      }
+
+      // Clean up previous EventSource if it exists
+      if (this.lastEventSource) {
+        this.lastEventSource.close();
       }
 
       this.lastEventSource = new EventSource(this.url, { withCredentials: this.options.withCredentials });
@@ -146,6 +223,10 @@ export class ReactiveEventSource {
         retry({
           count: this.options.maxRetries,
           delay: (error, attempt) => {
+            if (this.isDestroyed) {
+              return throwError(() => new EventSourceError('Instance destroyed'));
+            }
+
             if (error instanceof EventSourceError) {
               if (attempt >= this.options.maxRetries) {
                 return throwError(() => new EventSourceError(error.message));
@@ -160,9 +241,7 @@ export class ReactiveEventSource {
         }),
         takeUntil(this.destroy$),
         finalize(() => {
-          this.lastEventSource?.close();
-          this.eventSubjects.forEach((subject) => subject.complete());
-          this.eventSubjects.clear();
+          this.cleanupEventSource();
         })
       );
     }).pipe(
@@ -173,6 +252,17 @@ export class ReactiveEventSource {
         resetOnRefCountZero: false,
       })
     );
+  }
+
+  /**
+   * Cleans up the EventSource and associated resources
+   * @author Andreas Nicolaou
+   * @memberof ReactiveEventSource
+   */
+  private cleanupEventSource(): void {
+    if (this.lastEventSource) {
+      this.lastEventSource.close();
+    }
   }
 
   /**
@@ -188,7 +278,7 @@ export class ReactiveEventSource {
         this.eventSubjects.set(eventType, new ReplaySubject<MessageEvent>(1));
       }
 
-      fromEvent<MessageEvent>(this.lastEventSource, eventType)
+      const subscription = fromEvent<MessageEvent>(this.lastEventSource, eventType)
         .pipe(
           takeUntil(this.destroy$),
           catchError((err) => {
@@ -196,9 +286,27 @@ export class ReactiveEventSource {
             return EMPTY;
           })
         )
-        .subscribe((event) => {
-          this.eventSubjects.get(eventType)?.next(event);
+        .subscribe({
+          next: (event: MessageEvent) => {
+            const subject = this.eventSubjects.get(eventType);
+            if (subject && !subject.closed) {
+              subject.next(event);
+            }
+          },
+          error: (err: any) => {
+            const subject = this.eventSubjects.get(eventType);
+            if (subject && !subject.closed) {
+              subject.error(err);
+            }
+          },
         });
+
+      // Store subscription for proper cleanup
+      const existingSubscription = this.eventSubscriptions.get(eventType);
+      if (existingSubscription && !existingSubscription.closed) {
+        existingSubscription.unsubscribe();
+      }
+      this.eventSubscriptions.set(eventType, subscription);
     });
   }
 }
