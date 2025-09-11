@@ -1,7 +1,7 @@
 # reactive-event-source
 
 ![GitHub package.json version](https://img.shields.io/github/package-json/v/andreasnicolaou/reactive-event-source)
-![GitHub contributors](https://img.shields.io/github/contributors/andreasnicolaou/typescript-expression-language)
+![GitHub contributors](https://img.shields.io/github/contributors/andreasnicolaou/reactive-event-source)
 ![GitHub License](https://img.shields.io/github/license/andreasnicolaou/reactive-event-source)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/andreasnicolaou/reactive-event-source/build.yaml)
 [![Known Vulnerabilities](https://snyk.io/test/github/andreasnicolaou/reactive-event-source/badge.svg)](https://snyk.io/test/github/andreasnicolaou/reactive-event-source)
