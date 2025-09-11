@@ -11,6 +11,7 @@
 ![Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg?logo=prettier)
 ![Jest](https://img.shields.io/badge/tested_with-jest-99424f.svg?logo=jest)
 ![Maintenance](https://img.shields.io/maintenance/yes/2025)
+[![codecov](https://codecov.io/gh/andreasnicolaou/reactive-event-source/graph/badge.svg?token=354U0TAVZG)](https://codecov.io/gh/andreasnicolaou/reactive-event-source)
 
 ![NPM Downloads](https://img.shields.io/npm/dm/%40andreasnicolaou%2Freactive-event-source)
 
