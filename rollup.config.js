@@ -7,6 +7,7 @@ export default [
   // ESM build
   {
     input: 'src/index.ts',
+    external: ['rxjs', 'rxjs/operators'],
     output: {
       file: 'dist/index.js',
       format: 'es',
