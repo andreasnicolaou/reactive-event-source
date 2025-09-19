@@ -5,7 +5,7 @@
 ![GitHub License](https://img.shields.io/github/license/andreasnicolaou/reactive-event-source)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/andreasnicolaou/reactive-event-source/build.yaml)
 [![Known Vulnerabilities](https://snyk.io/test/github/andreasnicolaou/reactive-event-source/badge.svg)](https://snyk.io/test/github/andreasnicolaou/reactive-event-source)
-![Bundle Size](https://deno.bundlejs.com/badge?q=@andreasnicolaou/reactive-event-source@1.3.0&treeshake=[*])
+![Bundle Size](https://deno.bundlejs.com/badge?q=@andreasnicolaou/reactive-event-source&treeshake=[*])
 
 ![ESLint](https://img.shields.io/badge/linter-eslint-4B32C3.svg?logo=eslint)
 ![Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg?logo=prettier)
@@ -78,32 +78,41 @@ The library will be available as `reactiveEventSource` on the global scope:
 
 ## Usage
 
-```ts
+You can use this library in any modern JavaScript environment:
+
+### ESM (ECMAScript Modules)
+
+```js
 import { ReactiveEventSource } from '@andreasnicolaou/reactive-event-source';
 
 const eventSource = new ReactiveEventSource('https://api.example.com/stream');
-
-// Subscribe to standard events
-eventSource.on('open').subscribe(() => console.log('Connected'));
-eventSource.on('error').subscribe((err) => console.error('Error:', err));
-
-// Listen for custom events
-eventSource.on('update').subscribe((event) => {
-  console.log('New update:', event.data);
+eventSource.on('message').subscribe((event) => {
+  console.log('Received:', event.data);
 });
+```
 
-// Track connection state reactively
-eventSource.readyState$.subscribe((state) => {
-  console.log('Connection state:', state); // 0=CONNECTING, 1=OPEN, 2=CLOSED
+### CommonJS (Node.js require)
+
+```js
+const { ReactiveEventSource } = require('@andreasnicolaou/reactive-event-source');
+
+const eventSource = new ReactiveEventSource('https://api.example.com/stream');
+eventSource.on('message').subscribe((event) => {
+  console.log('Received:', event.data);
 });
+```
 
-// Get current state synchronously
-console.log('Current state:', eventSource.readyState);
-console.log('Using credentials:', eventSource.withCredentials);
-console.log('Connected to:', eventSource.URL);
+### UMD (CDN/Browser)
 
-// Clean up when done
-eventSource.close();
+```html
+<script src="https://unpkg.com/@andreasnicolaou/reactive-event-source/dist/index.umd.min.js"></script>
+<script>
+  const { ReactiveEventSource } = reactiveEventSource;
+  const eventSource = new ReactiveEventSource('https://api.example.com/stream');
+  eventSource.on('message').subscribe((event) => {
+    console.log('Received:', event.data);
+  });
+</script>
 ```
 
 ## API

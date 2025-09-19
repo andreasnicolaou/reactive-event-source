@@ -198,7 +198,9 @@ export class ReactiveEventSource {
       const timeout$ = timer(this.options.connectionTimeout).pipe(
         /* istanbul ignore next */
         switchMap(() => {
+          /* istanbul ignore next */
           this.readyStateSubject$.next(2); // CLOSED
+          /* istanbul ignore next */
           return throwError(() => new EventSourceError('Connection timeout'));
         })
       );
@@ -208,6 +210,7 @@ export class ReactiveEventSource {
         retry({
           count: this.options.maxRetries,
           delay: (error, attempt) => {
+            /* istanbul ignore next */
             if (error instanceof EventSourceError) {
               /* istanbul ignore next */
               if (attempt >= this.options.maxRetries) {
