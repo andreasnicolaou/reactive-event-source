@@ -8,6 +8,7 @@ eslint.config.mjs
 /coverage
 *.tgz
 .husky
+codecov.yaml
 
 # Build and development files
 rollup.config.js
