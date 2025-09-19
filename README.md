@@ -81,6 +81,7 @@ The library will be available as `reactiveEventSource` on the global scope:
 You can use this library in any modern JavaScript environment:
 
 ### ESM (ECMAScript Modules)
+
 ```js
 import { ReactiveEventSource } from '@andreasnicolaou/reactive-event-source';
 
@@ -91,6 +92,7 @@ eventSource.on('message').subscribe((event) => {
 ```
 
 ### CommonJS (Node.js require)
+
 ```js
 const { ReactiveEventSource } = require('@andreasnicolaou/reactive-event-source');
 
@@ -101,12 +103,13 @@ eventSource.on('message').subscribe((event) => {
 ```
 
 ### UMD (CDN/Browser)
+
 ```html
 <script src="https://unpkg.com/@andreasnicolaou/reactive-event-source/dist/index.umd.min.js"></script>
 <script>
   const { ReactiveEventSource } = reactiveEventSource;
   const eventSource = new ReactiveEventSource('https://api.example.com/stream');
-  eventSource.on('message').subscribe(event => {
+  eventSource.on('message').subscribe((event) => {
     console.log('Received:', event.data);
   });
 </script>
