@@ -5,7 +5,7 @@
 ![GitHub License](https://img.shields.io/github/license/andreasnicolaou/reactive-event-source)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/andreasnicolaou/reactive-event-source/build.yaml)
 [![Known Vulnerabilities](https://snyk.io/test/github/andreasnicolaou/reactive-event-source/badge.svg)](https://snyk.io/test/github/andreasnicolaou/reactive-event-source)
-![Bundle Size](https://deno.bundlejs.com/badge?q=@andreasnicolaou/reactive-event-source@1.3.0&treeshake=[*])
+![Bundle Size](https://deno.bundlejs.com/badge?q=@andreasnicolaou/reactive-event-source&treeshake=[*])
 
 ![ESLint](https://img.shields.io/badge/linter-eslint-4B32C3.svg?logo=eslint)
 ![Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg?logo=prettier)
