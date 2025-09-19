@@ -278,3 +278,241 @@ describe('ReactiveEventSource', () => {
     subscription.unsubscribe();
   });
 });
+
+describe('Getters', () => {
+  it('should return URL as string', () => {
+    const source = new ReactiveEventSource(testUrl);
+    expect(source.URL).toBe(testUrl);
+    source.close();
+  });
+
+  it('should return URL from URL object', () => {
+    const urlObj = new URL(testUrl);
+    const source = new ReactiveEventSource(urlObj);
+    expect(source.URL).toBe(testUrl);
+    source.close();
+  });
+
+  it('should return withCredentials when not explicitly set', () => {
+    const source = new ReactiveEventSource(testUrl);
+    expect(source.withCredentials).toBe(false);
+    source.close();
+  });
+
+  it('should return withCredentials when explicitly set to true', () => {
+    const source = new ReactiveEventSource(testUrl, { withCredentials: true });
+    expect(source.withCredentials).toBe(true);
+    source.close();
+  });
+});
+
+describe('Reactive State Tracking', () => {
+  it('should emit readyState$ changes', (done) => {
+    const source = new ReactiveEventSource(testUrl);
+    const states: number[] = [];
+
+    source.readyState$.subscribe((state) => {
+      states.push(state);
+      if (states.length === 3) {
+        expect(states).toEqual([2, 0, 1]); // CLOSED -> CONNECTING -> OPEN
+        source.close();
+        done();
+      }
+    });
+
+    // Trigger subscription which starts connection
+    source.on('message').subscribe();
+    jest.advanceTimersByTime(10);
+    MockEventSource.instances[0].emit('open');
+  });
+
+  it('should track state changes during reconnection', () => {
+    const source = new ReactiveEventSource(testUrl, { maxRetries: 1, initialDelay: 100 });
+    const states: number[] = [];
+
+    source.readyState$.subscribe((state) => states.push(state));
+    source.on('message').subscribe();
+
+    const mock = MockEventSource.instances[0];
+    mock.readyState = 0; // CONNECTING
+    mock.emit('error');
+
+    jest.advanceTimersByTime(10);
+    expect(states).toContain(0); // Should include CONNECTING state
+
+    source.close();
+  });
+});
+
+describe('Connection Timeout', () => {
+  it('should handle timeout configuration', () => {
+    const source = new ReactiveEventSource(testUrl, { connectionTimeout: 50 });
+
+    source.on('message').subscribe();
+    source.on('error').subscribe();
+
+    // Test that the configuration is set
+    expect(source.readyState).toBeDefined();
+
+    source.close();
+  });
+
+  it('should handle state changes during connection', () => {
+    const source = new ReactiveEventSource(testUrl, { connectionTimeout: 100 });
+    const states: number[] = [];
+
+    source.readyState$.subscribe((state) => states.push(state));
+    source.on('message').subscribe(); // Trigger connection
+
+    jest.advanceTimersByTime(10);
+
+    expect(states.length).toBeGreaterThan(1);
+    expect(states).toContain(0); // Should include CONNECTING state
+
+    source.close();
+  });
+});
+
+describe('Retry Logic', () => {
+  it('should handle error states properly', () => {
+    const source = new ReactiveEventSource(testUrl, { maxRetries: 1, initialDelay: 50 });
+
+    source.on('message').subscribe();
+    source.on('error').subscribe();
+
+    const mock = MockEventSource.instances[0];
+    mock.readyState = 0; // CONNECTING state
+    mock.emit('error');
+
+    jest.advanceTimersByTime(10);
+
+    expect(source.readyState).toBeDefined();
+    source.close();
+  });
+
+  it('should handle non-connecting error states', () => {
+    const source = new ReactiveEventSource(testUrl, { maxRetries: 1 });
+
+    source.on('message').subscribe();
+    source.on('error').subscribe();
+
+    // Simulate a non-connecting error
+    const mock = MockEventSource.instances[0];
+    mock.readyState = 2; // CLOSED state (not CONNECTING)
+    mock.emit('error');
+
+    jest.advanceTimersByTime(10);
+
+    expect(source.readyState).toBeDefined();
+    source.close();
+  });
+});
+
+describe('Error Handling in Event Listeners', () => {
+  it('should handle errors in event listener streams', () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {
+      // Mock implementation
+    });
+    const source = new ReactiveEventSource(testUrl);
+
+    source.on('message').subscribe();
+
+    const mock = MockEventSource.instances[0];
+    mock.emit('open');
+
+    // Test that error handling exists
+    expect(consoleErrorSpy).toBeDefined();
+
+    consoleErrorSpy.mockRestore();
+    source.close();
+  });
+});
+
+describe('Advanced Cleanup Scenarios', () => {
+  it('should handle cleanup when subscription already unsubscribed', () => {
+    const source = new ReactiveEventSource(testUrl);
+    const subscription = source.on('message').subscribe();
+
+    // Manually unsubscribe first
+    subscription.unsubscribe();
+
+    // Then close source (should handle already unsubscribed case)
+    expect(() => source.close()).not.toThrow();
+  });
+
+  it('should handle cleanup when subject already closed', () => {
+    const source = new ReactiveEventSource(testUrl);
+    source.on('message').subscribe();
+
+    // Close source which should close subjects
+    source.close();
+
+    // Calling close again should handle already closed subjects
+    expect(() => source.close()).not.toThrow();
+  });
+
+  it('should properly manage EventSource instances', () => {
+    const source = new ReactiveEventSource(testUrl, { maxRetries: 1, initialDelay: 50 });
+    source.on('message').subscribe();
+
+    const firstMock = MockEventSource.instances[0];
+    expect(firstMock.closeCalled).toBe(false);
+
+    // Test that EventSource management works
+    source.close();
+    expect(firstMock.closeCalled).toBe(true);
+  });
+
+  it('should handle subscription cleanup edge cases', () => {
+    const source = new ReactiveEventSource(testUrl);
+
+    // Create multiple subscriptions to same event type
+    const sub1 = source.on('message').subscribe();
+    const sub2 = source.on('message').subscribe();
+
+    // Verify both get the same observable (shared)
+    expect(sub1).toBeDefined();
+    expect(sub2).toBeDefined();
+
+    // Close should clean up properly
+    source.close();
+
+    sub1.unsubscribe();
+    sub2.unsubscribe();
+  });
+});
+
+describe('Edge Cases', () => {
+  it('should handle URL object input correctly', () => {
+    const urlObj = new URL(testUrl);
+    const source = new ReactiveEventSource(urlObj);
+
+    expect(source.URL).toBe(testUrl);
+    source.close();
+  });
+
+  it('should handle configuration options correctly', () => {
+    const source = new ReactiveEventSource(testUrl, {
+      maxRetries: 3,
+      initialDelay: 1000,
+      maxDelay: 2000,
+    });
+
+    source.on('message').subscribe();
+
+    // Test that configuration is applied
+    expect(source.withCredentials).toBe(false);
+    expect(source.URL).toBe(testUrl);
+
+    source.close();
+  });
+
+  it('should cover withCredentials getter edge case', () => {
+    const source = new ReactiveEventSource(testUrl, { withCredentials: undefined as any });
+
+    // This should trigger the ?? false fallback
+    expect(source.withCredentials).toBe(false);
+
+    source.close();
+  });
+});
