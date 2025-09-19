@@ -2,6 +2,7 @@ import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import terser from '@rollup/plugin-terser';
 import typescript from '@rollup/plugin-typescript';
+import { codecovRollupPlugin } from '@codecov/rollup-plugin';
 import dts from 'rollup-plugin-dts';
 
 export default [
@@ -22,6 +23,11 @@ export default [
         declaration: false,
         declarationMap: false,
       }),
+      codecovRollupPlugin({
+        enableBundleAnalysis: process.env.CODECOV_TOKEN !== undefined,
+        bundleName: 'reactive-event-source',
+        uploadToken: process.env.CODECOV_TOKEN,
+      }),
     ],
   },
   // CommonJS build (rxjs bundled)
@@ -41,6 +47,11 @@ export default [
         declaration: false,
         declarationMap: false,
       }),
+      codecovRollupPlugin({
+        enableBundleAnalysis: process.env.CODECOV_TOKEN !== undefined,
+        bundleName: 'reactive-event-source',
+        uploadToken: process.env.CODECOV_TOKEN,
+      }),
     ],
   },
   // UMD build (un-minified, rxjs bundled)
@@ -59,6 +70,11 @@ export default [
         tsconfig: './tsconfig.json',
         declaration: false,
         declarationMap: false,
+      }),
+      codecovRollupPlugin({
+        enableBundleAnalysis: process.env.CODECOV_TOKEN !== undefined,
+        bundleName: 'reactive-event-source',
+        uploadToken: process.env.CODECOV_TOKEN,
       }),
     ],
   },
@@ -80,6 +96,11 @@ export default [
         declarationMap: false,
       }),
       terser(),
+      codecovRollupPlugin({
+        enableBundleAnalysis: process.env.CODECOV_TOKEN !== undefined,
+        bundleName: 'reactive-event-source',
+        uploadToken: process.env.CODECOV_TOKEN,
+      }),
     ],
   },
   // Type definitions
