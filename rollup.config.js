@@ -1,10 +1,11 @@
 import resolve from '@rollup/plugin-node-resolve';
+import commonjs from '@rollup/plugin-commonjs';
 import terser from '@rollup/plugin-terser';
 import typescript from '@rollup/plugin-typescript';
 import dts from 'rollup-plugin-dts';
 
 export default [
-  // ESM build
+  // ESM build (rxjs external)
   {
     input: 'src/index.ts',
     external: ['rxjs', 'rxjs/operators'],
@@ -15,6 +16,7 @@ export default [
     },
     plugins: [
       resolve({ preferBuiltins: false }),
+      commonjs(),
       typescript({
         tsconfig: './tsconfig.json',
         declaration: false,
@@ -22,7 +24,26 @@ export default [
       }),
     ],
   },
-  // UMD build (un-minified)
+  // CommonJS build (rxjs bundled)
+  {
+    input: 'src/index.ts',
+    output: {
+      file: 'dist/index.cjs.js',
+      format: 'cjs',
+      sourcemap: false,
+      exports: 'named',
+    },
+    plugins: [
+      resolve({ preferBuiltins: false }),
+      commonjs(),
+      typescript({
+        tsconfig: './tsconfig.json',
+        declaration: false,
+        declarationMap: false,
+      }),
+    ],
+  },
+  // UMD build (un-minified, rxjs bundled)
   {
     input: 'src/index.ts',
     output: {
@@ -33,6 +54,7 @@ export default [
     },
     plugins: [
       resolve({ preferBuiltins: false, browser: true }),
+      commonjs(),
       typescript({
         tsconfig: './tsconfig.json',
         declaration: false,
@@ -40,7 +62,7 @@ export default [
       }),
     ],
   },
-  // UMD build (minified)
+  // UMD build (minified, rxjs bundled)
   {
     input: 'src/index.ts',
     output: {
@@ -51,6 +73,7 @@ export default [
     },
     plugins: [
       resolve({ preferBuiltins: false, browser: true }),
+      commonjs(),
       typescript({
         tsconfig: './tsconfig.json',
         declaration: false,
