@@ -80,7 +80,7 @@
   "devDependencies": {
     "@codecov/rollup-plugin": "^1.9.1",
     "@rollup/plugin-commonjs": "^28.0.9",
-    "@rollup/plugin-node-resolve": "^16.0.1",
+    "@rollup/plugin-node-resolve": "^16.0.3",
     "@rollup/plugin-terser": "^0.4.4",
     "@rollup/plugin-typescript": "^12.1.4",
     "@types/jest": "^30.0.0",
