@@ -89,7 +89,7 @@
     "@typescript-eslint/parser": "^8.57.1",
     "bundlewatch": "^0.4.1",
     "cross-env": "^10.1.0",
-    "eslint": "^10.0.3",
+    "eslint": "^10.1.0",
     "@eslint/js": "^10.0.1",
     "@eslint/eslintrc": "^3.3.5",
     "eslint-config-prettier": "^10.1.8",
