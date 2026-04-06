@@ -89,7 +89,7 @@
     "@typescript-eslint/parser": "^8.58.0",
     "bundlewatch": "^0.4.1",
     "cross-env": "^10.1.0",
-    "eslint": "^10.0.3",
+    "eslint": "^10.2.0",
     "@eslint/js": "^10.0.1",
     "@eslint/eslintrc": "^3.3.5",
     "eslint-config-prettier": "^10.1.8",
@@ -101,7 +101,7 @@
     "prettier": "3.8.1",
     "rollup": "^4.59.0",
     "rollup-plugin-dts": "^6.4.0",
-    "ts-jest": "^29.4.6",
+    "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   },
