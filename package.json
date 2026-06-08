@@ -86,7 +86,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^25.9.2",
     "@typescript-eslint/eslint-plugin": "^8.60.0",
-    "@typescript-eslint/parser": "^8.60.0",
+    "@typescript-eslint/parser": "^8.60.1",
     "bundlewatch": "^0.4.2",
     "cross-env": "^10.1.0",
     "eslint": "^10.3.0",
