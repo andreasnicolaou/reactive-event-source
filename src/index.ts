@@ -1,40 +1,64 @@
 import {
+  BehaviorSubject,
+  EMPTY,
   Observable,
+  ReplaySubject,
   Subject,
+  Subscription,
+  defer,
+  distinctUntilChanged,
+  finalize,
   fromEvent,
+  ignoreElements,
+  merge,
+  of,
+  retry,
+  share,
+  switchMap,
+  takeUntil,
+  tap,
   throwError,
   timer,
-  merge,
-  defer,
-  EMPTY,
-  ReplaySubject,
-  of,
-  BehaviorSubject,
 } from 'rxjs';
-import { retry, catchError, switchMap, takeUntil, finalize, share, raceWith } from 'rxjs/operators';
 import { EventSourceError } from './error';
 
 export type EventSourceEventType = 'open' | 'message' | 'error' | (string & Record<never, never>);
 export type EventSourceOptions = {
+  /**
+   * How many times the EventSource is re-created after a fatal failure (the browser gave up, or the
+   * connection timed out) before the streams error. Resets every time a connection opens successfully.
+   * Use `Infinity` to retry forever.
+   */
   maxRetries: number;
-  initialDelay: number; // in milliseconds
-  maxDelay: number; // in milliseconds
-  connectionTimeout?: number; // in milliseconds
+  /** Base delay before the first retry, in milliseconds. Doubles on every consecutive failure. */
+  initialDelay: number;
+  /** Upper bound for the base delay, in milliseconds. */
+  maxDelay: number;
+  /** How long to wait for the `open` event before treating the attempt as failed, in milliseconds. */
+  connectionTimeout?: number;
   withCredentials?: boolean;
 };
 
 // Re-export the error class for convenience
 export { EventSourceError } from './error';
 
+// EventSource.readyState values. Literals rather than EventSource.* so a polyfill without the statics still works.
+const CONNECTING = 0;
+const OPEN = 1;
+const CLOSED = 2;
+
+type EventStream = {
+  subject: ReplaySubject<Event>;
+  subscription: Subscription;
+};
+
 export class ReactiveEventSource {
   private readonly destroy$ = new Subject<void>();
-  private readonly eventListenerCleanup = new Map<string, () => void>();
   private readonly eventSource$: Observable<EventSource>;
-  private readonly eventSubjects = new Map<string, Subject<MessageEvent>>();
-  private lastEventSource!: EventSource;
+  private isClosed = false;
   private readonly options: Required<EventSourceOptions>;
-  private readonly readyStateSubject$ = new BehaviorSubject<number>(2); // Track connection state
-  private readonly subscriptions = new Map<string, { unsubscribe(): void }>(); // Track subscriptions for cleanup
+  private readonly readyStateSubject$ = new BehaviorSubject<number>(CLOSED);
+  private readonly streams = new Map<string, EventStream>();
   private readonly url: string | URL;
 
   /**
@@ -70,13 +94,13 @@ export class ReactiveEventSource {
   }
 
   /**
-   * Observable that emits the current connection state
+   * Observable that emits the current connection state, without consecutive duplicates
    * @returns Observable<number> Stream of connection state changes
    * @author Andreas Nicolaou
    * @memberof ReactiveEventSource
    */
   public get readyState$(): Observable<number> {
-    return this.readyStateSubject$.asObservable();
+    return this.readyStateSubject$.pipe(distinctUntilChanged());
   }
 
   /**
@@ -101,148 +125,126 @@ export class ReactiveEventSource {
 
   /**
    * Closes the SSE connection and completes all internal subjects and observables.
+   * Safe to call more than once.
    * @author Andreas Nicolaou
    * @memberof ReactiveEventSource
    */
   public close(): void {
-    // Clean up subscriptions first
-    this.subscriptions.forEach((subscription) => subscription.unsubscribe());
-    this.subscriptions.clear();
+    if (this.isClosed) {
+      return;
+    }
+    this.isClosed = true;
 
-    // Clean up event listeners
-    this.eventListenerCleanup.forEach((cleanup) => cleanup());
-    this.eventListenerCleanup.clear();
-
-    // Close the EventSource
-    this.lastEventSource?.close();
-
-    // Update ready state
-    this.readyStateSubject$.next(2);
-
-    // Complete all event subjects
-    this.eventSubjects.forEach((subject) => {
-      if (!subject.closed) {
-        subject.complete();
-      }
-    });
-    this.eventSubjects.clear();
-
-    // Complete internal subjects
+    // Tear down the shared connection. This closes the underlying EventSource via finalize.
     this.destroy$.next();
     this.destroy$.complete();
+
+    // Complete every event stream handed out by on()
+    this.streams.forEach(({ subject, subscription }) => {
+      subscription.unsubscribe();
+      subject.complete();
+    });
+    this.streams.clear();
+
+    this.readyStateSubject$.next(CLOSED);
     this.readyStateSubject$.complete();
   }
 
   /**
    * Subscribes to a specific SSE event type and returns it as an Observable.
+   * The underlying connection is opened the first time this method is called, not on subscribe.
+   * The returned observable replays the last event to late subscribers, errors with an
+   * EventSourceError once retries are exhausted, and completes when close() is called.
    * @param eventType - The name of the event to listen for (e.g., "message", "error", "open").
    * @returns An Observable that emits events of the given type.
    * @author Andreas Nicolaou
    * @memberof ReactiveEventSource
    */
-  public on(eventType: EventSourceEventType = 'message'): Observable<MessageEvent> {
-    if (!this.eventSubjects.has(eventType)) {
-      // Always use ReplaySubject(1) to buffer the last event
-      const subject = new ReplaySubject<MessageEvent>(1);
-      this.eventSubjects.set(eventType, subject);
-
-      // Set up event listener for this specific event type
-      this.setupEventListener(eventType, subject);
+  public on(eventType: 'open' | 'error'): Observable<Event>;
+  public on(eventType?: EventSourceEventType): Observable<MessageEvent>;
+  public on(eventType: EventSourceEventType = 'message'): Observable<Event> {
+    if (this.isClosed) {
+      return EMPTY;
     }
 
-    return this.eventSubjects.get(eventType)!.asObservable();
+    let stream = this.streams.get(eventType);
+    if (!stream) {
+      stream = this.setupEventListener(eventType);
+      this.streams.set(eventType, stream);
+    }
+    return stream.subject.asObservable();
   }
 
   /**
    * Creates an observable EventSource instance with optional credentials and automatic reconnection.
+   *
+   * Reconnection policy: a native EventSource reconnects on its own when the connection drops
+   * (readyState goes to CONNECTING and it resends Last-Event-ID), so that case is left to the browser.
+   * This wrapper only re-creates the EventSource when the browser has given up (readyState CLOSED,
+   * e.g. a non-200 response) or when the `open` event does not arrive within `connectionTimeout`.
    * @returns An observable that manages the EventSource lifecycle and reconnection strategy.
    * @author Andreas Nicolaou
    * @memberof ReactiveEventSource
    */
   private createEventSource(): Observable<EventSource> {
-    return defer(() => {
-      if (!window.EventSource) {
-        /* istanbul ignore next */
-        return throwError(() => new EventSourceError('EventSource is not supported in this environment'));
-      }
+    // Consecutive failed attempts. Reset whenever a connection opens, so the budget applies per outage.
+    let failures = 0;
 
-      // Close previous EventSource if it exists before creating a new one
-      /* istanbul ignore next */
-      if (this.lastEventSource) {
-        this.lastEventSource.close();
-      }
+    // Emits the EventSource as soon as it is created, so per-type listeners attach before `open` fires.
+    const attempt$ = defer(() => {
+      const es = new EventSource(this.url, { withCredentials: this.options.withCredentials });
+      this.readyStateSubject$.next(es.readyState);
 
-      this.lastEventSource = new EventSource(this.url, { withCredentials: this.options.withCredentials });
+      const opened$ = fromEvent(es, 'open');
 
-      // Update ready state immediately
-      this.readyStateSubject$.next(this.lastEventSource.readyState);
-
-      const open$ = fromEvent(this.lastEventSource, 'open').pipe(
-        switchMap(() => {
-          this.readyStateSubject$.next(1); // OPEN
-          return of(this.lastEventSource);
-        })
+      const open$ = opened$.pipe(
+        tap(() => {
+          failures = 0;
+          this.readyStateSubject$.next(OPEN);
+        }),
+        ignoreElements()
       );
 
-      const error$ = fromEvent(this.lastEventSource, 'error').pipe(
+      const error$ = fromEvent(es, 'error').pipe(
         switchMap(() => {
-          this.readyStateSubject$.next(this.lastEventSource.readyState);
-          /* istanbul ignore next */
-          if (this.lastEventSource.readyState === EventSource.CONNECTING) {
-            return throwError(() => new EventSourceError('Initial connection failed'));
-          }
-          return EMPTY;
+          this.readyStateSubject$.next(es.readyState);
+          return es.readyState === CLOSED ? throwError(() => new EventSourceError('Connection closed')) : EMPTY;
         })
       );
 
       const timeout$ = timer(this.options.connectionTimeout).pipe(
-        /* istanbul ignore next */
-        switchMap(() => {
-          /* istanbul ignore next */
-          this.readyStateSubject$.next(2); // CLOSED
-          /* istanbul ignore next */
-          return throwError(() => new EventSourceError('Connection timeout'));
-        })
+        takeUntil(opened$),
+        switchMap(() => throwError(() => new EventSourceError('Connection timeout')))
       );
 
-      return merge(open$, error$).pipe(
-        raceWith(timeout$),
-        retry({
-          count: this.options.maxRetries,
-          delay: (error, attempt) => {
-            /* istanbul ignore next */
-            if (error instanceof EventSourceError) {
-              /* istanbul ignore next */
-              if (attempt >= this.options.maxRetries) {
-                this.readyStateSubject$.next(2); // CLOSED
-                return throwError(() => new EventSourceError(error.message));
-              }
-              /* istanbul ignore next */
-              const baseDelay = Math.min(this.options.initialDelay * Math.pow(2, attempt), this.options.maxDelay);
-              /* istanbul ignore next */
-              const retryAfter = Math.random() * baseDelay;
-              /* istanbul ignore next */
-              console.log(`Retrying connection (attempt ${attempt + 1}) in ${retryAfter}ms`);
-              /* istanbul ignore next */
-              this.readyStateSubject$.next(0); // CONNECTING
-              /* istanbul ignore next */
-              return timer(retryAfter);
-            }
-            /* istanbul ignore next */
-            return throwError(() => new EventSourceError('Unrecoverable EventSource error', attempt));
-          },
-        }),
-        takeUntil(this.destroy$),
-        finalize(() => {
-          /* istanbul ignore next */
-          if (this.lastEventSource) {
-            this.lastEventSource.close();
-          }
-          /* istanbul ignore next */
-          this.readyStateSubject$.next(2); // CLOSED
-        })
-      );
+      return merge(of(es), open$, error$, timeout$).pipe(finalize(() => es.close()));
     }).pipe(
+      retry({
+        delay: (error: unknown) => {
+          if (!(error instanceof EventSourceError)) {
+            const detail = error instanceof Error ? error.message : String(error);
+            return throwError(() => new EventSourceError(`Unrecoverable EventSource error: ${detail}`, -1, error));
+          }
+          failures++;
+          if (failures > this.options.maxRetries) {
+            this.readyStateSubject$.next(CLOSED);
+            const retries = this.options.maxRetries;
+            return throwError(() => new EventSourceError(`${error.reason} (retries exhausted)`, retries, error));
+          }
+          this.readyStateSubject$.next(CONNECTING);
+          return timer(this.retryDelay(failures));
+        },
+      })
+    );
+
+    return defer(() => {
+      if (typeof globalThis.EventSource !== 'function') {
+        return throwError(() => new EventSourceError('EventSource is not supported in this environment'));
+      }
+      return attempt$;
+    }).pipe(
+      takeUntil(this.destroy$),
+      finalize(() => this.readyStateSubject$.next(CLOSED)),
       share({
         connector: () => new ReplaySubject(1),
         resetOnComplete: false,
@@ -253,55 +255,32 @@ export class ReactiveEventSource {
   }
 
   /**
-   * Sets up an event listener for a specific event type
-   * @param eventType - The event type to listen for
-   * @param subject - The subject to emit events to
+   * Exponential backoff with equal jitter: the wait lies in [base / 2, base) where
+   * base = min(initialDelay * 2^(retryCount - 1), maxDelay).
+   * @param retryCount - 1-based number of the retry about to be made
    */
-  private setupEventListener(eventType: string, subject: Subject<MessageEvent>): void {
+  private retryDelay(retryCount: number): number {
+    const base = Math.min(this.options.initialDelay * 2 ** (retryCount - 1), this.options.maxDelay);
+    return base / 2 + Math.random() * (base / 2);
+  }
+
+  /**
+   * Wires a ReplaySubject to the given event type on whichever EventSource is currently live.
+   * @param eventType - The event type to listen for
+   */
+  private setupEventListener(eventType: string): EventStream {
+    const subject = new ReplaySubject<Event>(1);
     const subscription = this.eventSource$
       .pipe(
-        takeUntil(this.destroy$),
-        switchMap((eventSource) => {
-          // Update ready state when we get a new EventSource
-          this.readyStateSubject$.next(eventSource.readyState);
-
-          return fromEvent<MessageEvent>(eventSource, eventType).pipe(
-            catchError((err) => {
-              /* istanbul ignore next */
-              console.error(`Error in "${eventType}" event`, err);
-              /* istanbul ignore next */
-              subject.error(err);
-              /* istanbul ignore next */
-              return EMPTY;
-            })
-          );
-        })
+        distinctUntilChanged(),
+        switchMap((eventSource) => fromEvent(eventSource, eventType)),
+        takeUntil(this.destroy$)
       )
       .subscribe({
         next: (event) => subject.next(event),
-        /* istanbul ignore next */
         error: (err) => subject.error(err),
-        /* istanbul ignore next */
-        complete: () => subject.complete(),
       });
 
-    // Store subscription for cleanup
-    this.subscriptions.set(eventType, subscription);
-
-    // Store cleanup function
-    this.eventListenerCleanup.set(eventType, () => {
-      // Unsubscribe first
-      const sub = this.subscriptions.get(eventType);
-      if (sub) {
-        sub.unsubscribe();
-        this.subscriptions.delete(eventType);
-      }
-
-      // Complete subject if not already closed
-      /* istanbul ignore next */
-      if (!subject.closed) {
-        subject.complete();
-      }
-    });
+    return { subject, subscription };
   }
 }

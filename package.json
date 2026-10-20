@@ -1,12 +1,17 @@
 {
   "name": "@andreasnicolaou/reactive-event-source",
-  "version": "1.7.1",
+  "version": "2.0.0",
   "description": "A lightweight reactive wrapper around EventSource using RxJS, providing automatic reconnection and buffering.",
-  "main": "dist/index.js",
+  "main": "dist/index.cjs",
   "module": "dist/index.js",
-  "browser": "dist/index.umd.min.js",
-  "private": false,
+  "unpkg": "dist/index.umd.min.js",
+  "jsdelivr": "dist/index.umd.min.js",
   "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "private": false,
   "type": "module",
   "exports": {
     ".": {
@@ -14,24 +19,28 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       },
-      "browser": "./dist/index.umd.min.js",
-      "types": "./dist/index.d.ts"
-    }
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "rollup -c",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint --fix",
+    "lint": "eslint",
     "test": "jest",
     "test:ci": "cross-env JEST_JUNIT_CLASSNAME=\"{filepath}\" jest --reporters=default --reporters=jest-junit",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "test:bundle": "npx bundlewatch"
+    "test:bundle": "npx bundlewatch",
+    "lint:fix": "eslint --fix"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/andreasnicolaou/reactive-event-source.git"
+    "url": "git+https://github.com/andreasnicolaou/reactive-event-source.git"
   },
   "bugs": {
     "url": "https://github.com/andreasnicolaou/reactive-event-source/issues"
@@ -61,24 +70,26 @@
         "compression": "gzip"
       },
       {
-        "path": "dist/index.cjs.js",
-        "maxSize": "15kB",
+        "path": "dist/index.cjs",
+        "maxSize": "5kB",
         "compression": "gzip"
       },
       {
         "path": "dist/index.umd.js",
-        "maxSize": "15kB",
+        "maxSize": "20kB",
         "compression": "gzip"
       },
       {
         "path": "dist/index.umd.min.js",
-        "maxSize": "10kB",
+        "maxSize": "12kB",
         "compression": "gzip"
       }
     ]
   },
   "devDependencies": {
     "@codecov/rollup-plugin": "^2.0.1",
+    "@eslint/eslintrc": "^3.3.7",
+    "@eslint/js": "^10.0.1",
     "@rollup/plugin-commonjs": "^29.0.3",
     "@rollup/plugin-node-resolve": "^16.0.3",
     "@rollup/plugin-terser": "^1.0.0",
@@ -87,19 +98,17 @@
     "@types/node": "^26.6.5",
     "@typescript-eslint/eslint-plugin": "^8.72.0",
     "@typescript-eslint/parser": "^8.72.0",
-    "bundlewatch": "^0.4.2",
+    "bundlewatch": "^1.1.0",
     "cross-env": "^10.1.0",
     "eslint": "^10.13.0",
-    "@eslint/js": "^10.0.1",
-    "@eslint/eslintrc": "^3.3.7",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.7",
     "globals": "^17.13.0",
     "jest": "^30.5.2",
     "jest-environment-jsdom": "^30.5.2",
     "jest-junit": "^17.0.0",
-    "prettier": "3.9.6",
-    "rollup": "^4.64.10",
+    "prettier": "3.9.10",
+    "rollup": "^4.64.12",
     "rollup-plugin-dts": "^6.5.1",
     "ts-jest": "^29.4.15",
     "ts-node": "^10.9.2",
