@@ -59,6 +59,13 @@ export default [
     },
   },
   {
-    ignores: ['dist/**'],
+    // Plain JS config files cannot carry type annotations
+    files: ['**/*.js', '**/*.mjs'],
+    rules: {
+      '@typescript-eslint/explicit-function-return-type': 'off',
+    },
+  },
+  {
+    ignores: ['dist/**', 'coverage/**'],
   },
 ];
